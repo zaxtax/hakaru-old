@@ -9,17 +9,17 @@ module Language.Hakaru.ImportanceSampler where
 -- inputs.  In exchange, we get to make Measure an instance of Monad, and we
 -- can express models whose number of observations is unknown at compile time.
 
-import Types (Cond(..), CSampler(CSampler))
-import RandomChoice (normal_rng, chooseIndex)
-import Mixture (Prob, empty, point, Mixture(..))
-import Sampler (Sampler, deterministic, smap, sbind)
+import Language.Hakaru.Types (Cond(..), CSampler(CSampler))
+import qualified Language.Hakaru.Distribution as D
+import Language.Hakaru.Mixture (Prob, empty, point, Mixture(..))
+import Language.Hakaru.Sampler (Sampler, deterministic, smap, sbind)
 
 import System.Random
 import Data.Monoid
 import Data.Ix
 import Data.Dynamic
 import Data.List
-import Control.Monad
+import System.IO.Unsafe
 import qualified Data.Map.Strict as M
 
 import qualified Data.Number.LogFloat as LF
@@ -42,16 +42,16 @@ bern theta | 0 <= theta && theta <= 1 = CSampler c where
   c _ = error "bern: got a non-discrete sampler"
 bern theta = error ("bernoulli: invalid parameter " ++ show theta)
 
-uniformC :: (Fractional a, Real a, Random a, Typeable a) => a -> a -> CSampler a
-uniformC lo hi | lo < hi = CSampler c where
+uniform :: (Fractional a, Real a, Random a, Typeable a) => a -> a -> CSampler a
+uniform lo hi | lo < hi = CSampler c where
   c Unconditioned = \g0 -> case randomR (lo,hi) g0 of
     (x, g) -> (point x 1, g)
   c (Lebesgue y) = case fromDynamic y of
     Just y -> deterministic (if lo < y && y < hi then point y density else empty)
-    Nothing -> error "uniformC: did not get data from dynamic source"
-  c _ = error "uniformC: got a discrete sampler"
+    Nothing -> error "uniform: did not get data from dynamic source"
+  c _ = error "uniform: got a discrete sampler"
   density = fromRational (toRational (recip (hi - lo)))
-uniformC _ _ = error "uniformC: invalid parameters"
+uniform _ _ = error "uniform: invalid parameters"
 
 uniformD :: (Ix a, Random a, Typeable a) => a -> a -> CSampler a
 uniformD lo hi | lo <= hi = CSampler c where
@@ -64,11 +64,22 @@ uniformD lo hi | lo <= hi = CSampler c where
   density = recip (fromInteger (toInteger (rangeSize (lo,hi))))
 uniformD _ _ = error "uniformD: invalid parameters"
 
+beta :: Double -> Double -> CSampler Double
+beta a b = CSampler c where
+  c Unconditioned = \g0 -> case D.beta_rng a b g0 of
+    (x, g) -> (point x 1, g)
+  c (Lebesgue y) = case fromDynamic y of
+    Just y -> deterministic (point y density)
+      where density = LF.logToLogFloat $ D.betaLogDensity a b y
+    Nothing -> error "beta: did not get data from dynamic source"
+  c _ = error "beta: got a discrete sampler"
+beta _ _ = error "beta: invalid parameters"
+
 poisson :: (Integral a, Typeable a) => Double -> CSampler a
 poisson !l | 0 <= l = CSampler c where
   c Unconditioned = \g0 ->
     let probs = exp (-l) : zipWith (\k p -> p * l / k) [1..] probs
-        (k, g) = chooseIndex probs g0
+        (k, g) = D.chooseIndex probs g0
     in (point (fromInteger (toInteger k)) 1, g)
   c (Discrete k) = case fromDynamic k of
     Just k ->
@@ -83,7 +94,7 @@ poisson _ = error "poisson: invalid parameter"
 
 normal :: (Real a, Floating a, Random a, Typeable a) => a -> a -> CSampler a
 normal !mean !std | std > 0 = CSampler c where
-  c Unconditioned = \g0 -> let (x, g) = normal_rng mean std g0
+  c Unconditioned = \g0 -> let (x, g) = D.normal_rng mean std g0
                            in (point (mean + std * x) 1, g)
   c (Lebesgue y) = case fromDynamic y of
     Just y ->
@@ -134,40 +145,24 @@ unconditioned (CSampler f) = Measure (\      conds  -> smap (\a->(a,conds)) (f U
 factor :: Prob -> Measure ()
 factor p = Measure (\conds -> deterministic (point ((), conds) p))
 
--- Our language also includes the usual goodies of a lambda calculus
-var :: a -> a
-var = id
-
-lit :: a -> a
-lit = id
-
-lam :: (a -> b) -> (a -> b)
-lam f = f
-
-app :: (a -> b) -> a -> b
-app f x = f x
-
-fix :: ((a -> b) -> (a -> b)) -> (a -> b)
-fix g = f where f = g f
-
-ifThenElse :: Bool -> a -> a -> a
-ifThenElse True  t _ = t
-ifThenElse False _ e = e
-
 -- Drivers for testing
 finish :: Mixture (a, [Cond]) -> Mixture a
 finish (Mixture m) = Mixture (M.mapKeysMonotonic (\(a,[]) -> a) m)
 
-sample :: (Ord a) => Int -> Measure a -> [Cond] -> IO (Mixture a)
-sample !n measure conds = go n empty where
+empiricalMeasure :: (Ord a) => Int -> Measure a -> [Cond] -> IO (Mixture a)
+empiricalMeasure !n measure conds = go n empty where
   once = getStdRandom (unMeasure measure conds)
   go 0 m = return m
   go n m = once >>= \result -> go (n - 1) $! mappend m (finish result)
 
-sample_ :: (Ord a, Show a) => Int -> Measure a -> [Cond] -> IO ()
-sample_ !n measure conds = replicateM_ n (once >>= pr) where
-  once = getStdRandom (unMeasure measure conds)
-  pr   = print . finish
+sample_ :: (Ord a, Show a) => Measure a -> [Cond] -> IO [(a, Prob)]
+sample_ measure conds = do
+  u <- once
+  let x = mixToTuple (finish u)
+  xs <- unsafeInterleaveIO $ sample_ measure conds
+  return (x : xs)
+ where once = getStdRandom (unMeasure measure conds)
+       mixToTuple = head . M.toList . unMixture
 
 logit :: Floating a => a -> a
 logit !x = 1 / (1 + exp (- x))

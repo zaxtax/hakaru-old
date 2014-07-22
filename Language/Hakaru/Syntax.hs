@@ -12,7 +12,7 @@ import qualified Text.PrettyPrint as PP
 
 -- The importance-sampling semantics
 
-import Types (Cond, CSampler)
+import Language.Hakaru.Types (Cond, CSampler)
 import Data.Dynamic (Typeable)
 import qualified Data.Number.LogFloat as LF
 import qualified Language.Hakaru.ImportanceSampler as IS
@@ -135,7 +135,7 @@ instance Mochastic IS where
   categorical (IS xps)    = IS (IS.categorical xps)
   bern (IS p)             = IS (IS.bern p)
   normal (IS m) (IS s)    = IS (IS.normal m s)
-  uniform (IS lo) (IS hi) = IS (IS.uniformC lo hi)
+  uniform (IS lo) (IS hi) = IS (IS.uniform lo hi)
   poisson (IS l)          = IS (IS.poisson l)
 
 -- The Metropolis-Hastings semantics
@@ -143,7 +143,7 @@ instance Mochastic IS where
 newtype MH a = MH (MH' a)
 type family MH' a
 type instance MH' (Measure a)  = MH.Measure (MH' a)
-type instance MH' (Dist a)     = MH.Cond -> MH.Measure (MH' a)
+type instance MH' (Dist a)     = MH.CSampler (MH' a)
 type instance MH' [a]          = [MH' a]
 type instance MH' (a, b)       = (MH' a, MH' b)
 type instance MH' (Either a b) = Either (MH' a) (MH' b)

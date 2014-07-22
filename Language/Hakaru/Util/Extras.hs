@@ -5,15 +5,12 @@
   PRNGs from System.Random rather than from the random-fu package.
 -}
 
-module Util.Extras where
+module Language.Hakaru.Util.Extras where
 
 import qualified Data.Sequence as S
 import System.Random
 import Data.Maybe
 import qualified Data.Foldable as F
-
-import Data.Dynamic
-import Types
 
 extract :: S.Seq a -> Int -> Maybe (S.Seq a, a)
 extract s i | S.null r = Nothing
@@ -79,6 +76,3 @@ pairs (x:xs) = (zip (repeat x) xs) ++ pairs xs
 
 l2Norm :: Floating a => [a] -> a
 l2Norm l = sqrt.sum $ zipWith (*) l l
-
-dataLoad []     = []
-dataLoad (x:xs) = Lebesgue (toDyn (x :: Double)) : dataLoad xs

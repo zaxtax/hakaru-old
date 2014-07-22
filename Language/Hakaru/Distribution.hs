@@ -1,14 +1,38 @@
-{-# LANGUAGE BangPatterns #-}
-module RandomChoice where
+{-# LANGUAGE RankNTypes, StandaloneDeriving, BangPatterns,
+  DeriveDataTypeable, GADTs #-}
+
+module Language.Hakaru.Distribution where
 
 import System.Random
-import Mixture
+import Language.Hakaru.Mixture
+import Data.Dynamic
 import Data.Maybe (fromMaybe)
 import Data.List (findIndex, foldl')
 import Numeric.SpecFunctions
 import qualified Data.Vector.Unboxed as U
 import qualified Data.Map.Strict as M
 import qualified Data.Number.LogFloat as LF
+
+type Likelihood = Double
+data Dist a = Dist {logDensity :: a -> Likelihood,
+                    sample :: forall g. RandomGen g => g -> (a, g)}
+deriving instance Typeable1 Dist
+
+dirac :: (Eq a, Typeable a) => a -> Dist a
+dirac theta = Dist {logDensity = (\ x -> if x == theta then 0 else log 0),
+                    sample = (\ g -> (theta,g))}
+
+bern :: Double -> Dist Bool
+bern p = Dist {logDensity = (\ x -> log (if x then p else 1 - p)),
+               sample = (\ g -> case randomR (0, 1) g of
+                                  (t, g') -> (t <= p, g'))}
+
+uniform :: Double -> Double -> Dist Double
+uniform lo hi =
+    let uniformLogDensity lo' hi' x | lo' <= x && x <= hi' = log (recip (hi' - lo'))
+        uniformLogDensity _ _ _ = log 0
+    in Dist {logDensity = uniformLogDensity lo hi,
+             sample = (\ g -> randomR (lo, hi) g)}
 
 marsaglia :: (RandomGen g, Random a, Ord a, Floating a) => g -> ((a, a), g)
 marsaglia g0 = -- "Marsaglia polar method"
@@ -48,6 +72,23 @@ normalLogDensity mu sd x = (-tau * square (x - mu)
   where square y = y * y
         tau = 1 / square sd
 
+normal :: Double -> Double -> Dist Double 
+normal mu sd = Dist {logDensity = normalLogDensity mu sd,
+                     sample = normal_rng mu sd}
+
+categoricalLogDensity list x = log $ fromMaybe 0 (lookup x list)
+categoricalSample list g = (elem', g1)
+    where
+      (p, g1) = randomR (0, total) g
+      elem' = fst $ head $ filter (\(_,p0) -> p <= p0) sumList
+      sumList = scanl1 (\acc (a, b) -> (a, b + snd(acc))) list
+      total = sum $ map snd list
+
+categorical :: (Eq a, Typeable a) => [(a,Double)] 
+            -> Dist a
+categorical list = Dist {logDensity = categoricalLogDensity list,
+                         sample = categoricalSample list}
+
 lnFact = logFactorial
 
 -- Makes use of Atkinson's algorithm as described in:
@@ -79,6 +120,14 @@ poisson_rng lambda g0 = make_poisson g0
          accept_region us v k = log (v * arep / (a/(us*us)+b)) <=
                                 -lambda + (fromIntegral k)*lnlam - lnFact k
 
+poisson :: Double -> Dist Int
+poisson l =
+    let poissonLogDensity l' x | l' > 0 && x> 0 = (fromIntegral x)*(log l') - lnFact x - l'
+        poissonLogDensity l' x | x==0 = -l'
+        poissonLogDensity _ _ = log 0
+    in Dist {logDensity = poissonLogDensity l,
+             sample = poisson_rng l}
+
 -- Direct implementation of  "A Simple Method for Generating Gamma Variables"
 -- by George Marsaglia and Wai Wan Tsang.
 gamma_rng :: (RandomGen g) => Double -> Double -> g -> (Double, g)
@@ -107,8 +156,19 @@ gammaLogDensity shape scale x | x>= 0 && shape > 0 && scale > 0 =
      scale * log shape - scale * x + (shape - 1) * log x - logGamma shape
 gammaLogDensity _ _ _ = log 0
 
+gamma :: Double -> Double -> Dist Double
+gamma shape scale = Dist {logDensity = gammaLogDensity shape scale,
+                          sample = gamma_rng shape scale}
+
 beta_rng :: (RandomGen g) => Double -> Double -> g -> (Double, g)
--- Consider adding case for a <= 1 && b <= 1
+beta_rng a b g | a <= 1.0 && b <= 1.0 =
+                 let (u, g1) = randomR (0.0, 1.0) g
+                     (v, g2) = randomR (0.0, 1.0) g1
+                     x = u ** (recip a)
+                     y = v ** (recip b)
+                 in  case (x+y) <= 1.0 of
+                       True -> (x / (x + y), g2)
+                       False -> beta_rng a b g2
 beta_rng a b g = let (ga, g1) = gamma_rng a 1 g
                      (gb, g2) = gamma_rng b 1 g1
                  in (ga / (ga + gb), g2)
@@ -118,8 +178,12 @@ betaLogDensity a b x | a <= 0 || b <= 0 = error "beta: parameters must be positv
 betaLogDensity a b x = (logGamma (a + b)
                         - logGamma a
                         - logGamma b
-                        + x * log (a - 1)
-                        + (1 - x) * log (b - 1))
+                        + (a - 1) * log x
+                        + (b - 1) * log (1 - x))
+
+beta :: Double -> Double -> Dist Double
+beta a b = Dist {logDensity = betaLogDensity a b,
+                 sample = beta_rng a b}
 
 laplace_rng :: (RandomGen g) => Double -> Double -> g -> (Double, g)
 laplace_rng mu sd g = sample (randomR (0.0, 1.0) g)
@@ -128,6 +192,10 @@ laplace_rng mu sd g = sample (randomR (0.0, 1.0) g)
                             False -> (mu - sd * log (2.0 - u - u), g1)
 
 laplaceLogDensity mu sd x = - log (2 * sd) - abs (x - mu) / sd
+
+laplace :: Double -> Double -> Dist Double
+laplace mu sd = Dist {logDensity = laplaceLogDensity mu sd,
+                      sample = laplace_rng mu sd}
 
 -- Consider having dirichlet return Vector
 -- Note: This is acutally symmetric dirichlet

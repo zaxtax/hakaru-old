@@ -1,7 +1,7 @@
 {-# LANGUAGE RankNTypes, NoMonomorphismRestriction #-}
 {-# OPTIONS -W #-}
 
-module Util.FileInterpolater where
+module Main where
 
 import System.IO
 import Text.ParserCombinators.Parsec

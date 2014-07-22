@@ -4,7 +4,7 @@ module Examples.Tests where
 
 import Types
 import Data.Dynamic
-import Language.Hakaru.ImportanceSampler
+import Language.Hakaru.Syntax
 
 -- Some example/test programs in our language
 test :: Measure Bool
@@ -63,6 +63,13 @@ test_categorical = do
   _ <- conditioned (if rain then (if sprinkler then bern 0.99 else bern 0.8)
 	                else (if sprinkler then bern 0.9 else bern 0.1))
   return rain
+
+test_multiple_conditions :: Measure Double
+test_multiple_conditions = do
+  b <- unconditioned (beta 1 1)
+  conditioned (bern b)
+  conditioned (bern b)
+  return b
 
 -- printing test results
 main :: IO ()
