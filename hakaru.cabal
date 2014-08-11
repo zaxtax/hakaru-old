@@ -23,6 +23,7 @@ library
                        Language.Hakaru.Mixture,
                        Language.Hakaru.Sampler,
                        Language.Hakaru.Syntax,
+                       Language.Hakaru.Syntax2,
                        Language.Hakaru.ImportanceSampler,
                        Language.Hakaru.Metropolis,
                        Language.Hakaru.Lambda,
@@ -31,11 +32,10 @@ library
                        Language.Hakaru.Util.Extras,
                        Language.Hakaru.Util.Visual,
                        Language.Hakaru.Util.Coda
-  -- other-modules:       
   other-extensions:    RankNTypes, BangPatterns, GADTs, TypeFamilies, TypeOperators,
                        ConstraintKinds, FlexibleContexts, NoMonomorphismRestriction,
                        DeriveDataTypeable, ScopedTypeVariables, ExistentialQuantification,
-                       StandaloneDeriving, OverloadedStrings, DataKinds,
+                       StandaloneDeriving, OverloadedStrings,
                        FlexibleInstances, RebindableSyntax
   build-depends:       base >=4.6 && <5.0,
                        random >=1.0 && <1.1,
@@ -43,6 +43,7 @@ library
                        containers >=0.5 && <0.6,
                        pretty >=1.1 && <1.2,
                        logfloat >=0.12 && <0.13,
+                       hmatrix >=0.16 && <0.17,
                        math-functions >=0.1 && <0.2,
                        vector >=0.10 && <0.11,
                        cassava >=0.4 && <0.5,
@@ -51,18 +52,30 @@ library
                        aeson >=0.7 && <0.8,
                        text >=1.1 && <1.2,
                        statistics >=0.11 && <0.14,
-                       hmatrix >=0.16 && <0.17,
                        parsec >=3.1 && <3.2,
-                       array >=0.4 && <0.5,
+                       array >=0.4,
                        mwc-random >=0.13 && <0.14,
                        directory >=1.2 && <1.3,
                        parallel >=3.2 && <3.3
   -- hs-source-dirs:      
   default-language:    Haskell2010
+  ghc-options:         -Wall
 
-test-suite test-bar
+Test-suite hakaru-test
     type:              detailed-0.9
-    test-module:       Language.Hakaru.Tests
-    build-depends:     base, Cabal >= 1.10, cabal-test-quickcheck >= 0.1.2
+    test-module:       Tests.Tests
+    other-modules:     Tests.ImportanceSampler,
+                       Tests.Models,
+                       Tests.Metropolis
+    build-depends:     base, Cabal >= 1.10, 
+                       -- QuickCheck, 
+                       HUnit,
+                       random >=1.0 && <1.1,
+                       --cabal-test-quickcheck >= 0.1.2,
+                       --cabal-test-hunit >= 0.1.0,
+                       pretty >=1.1 && <1.2,
+                       containers >=0.5 && <0.6,
+                       logfloat >=0.12 && <0.13,
+                       math-functions >=0.1 && <0.2
     default-language:  Haskell2010
 
